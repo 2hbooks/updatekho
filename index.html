@@ -324,6 +324,23 @@
       </div>
     </div>
 
+    <!-- Sản phẩm hết tồn (= 0) -->
+    <div class="card" id="card-zero" style="display:none">
+      <h2>🚨 Sản phẩm hết tồn kho (= 0)</h2>
+      <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:12px">
+        Các sản phẩm đã được cập nhật nhưng tồn kho bằng 0 ở tất cả kho có trong file. Cần nhập thêm hàng hoặc kiểm tra lại.
+      </p>
+      <details open>
+        <summary id="zero-summary">Xem danh sách</summary>
+        <div class="tbl-wrap" style="margin-top:10px">
+          <table id="tbl-zero">
+            <thead><tr><th>SKU Shopee</th><th>Mã Phân Loại</th><th>Loại</th><th>Thành phần</th><th>SL HCM</th><th>SL HN</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
     <!-- SKU chưa mapping -->
     <div class="card" id="card-nomap" style="display:none">
       <h2>⚠️ SKU tồn kho chưa có mapping</h2>
@@ -932,6 +949,37 @@ async function runProcess() {
         tbody.appendChild(tr);
       }
       document.getElementById("card-sheets").style.display = "";
+    }
+
+    // Sản phẩm hết tồn (đã được cập nhật nhưng tồn = 0 ở tất cả kho)
+    const zeroStock = logRecords.filter(r => {
+      if (!r.trangThai.startsWith("✅")) return false;
+      const hcmZero = (r.slHCM === 0 || r.slHCM === "—");
+      const hnZero  = (r.slHN  === 0 || r.slHN  === "—");
+      // Cảnh báo nếu tất cả cột có trong file đều = 0
+      const hcmExists = stats.nameHCM !== "";
+      const hnExists  = stats.nameHN  !== "";
+      if (hcmExists && hnExists) return r.slHCM === 0 && r.slHN === 0;
+      if (hcmExists) return r.slHCM === 0;
+      if (hnExists)  return r.slHN  === 0;
+      return false;
+    });
+    if (zeroStock.length) {
+      const tbodyZ = document.querySelector("#tbl-zero tbody");
+      tbodyZ.innerHTML = "";
+      for (const r of zeroStock) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${r.skuShopee || "—"}</strong></td>
+          <td>${r.variationId || "—"}</td>
+          <td>${r.loai}</td>
+          <td style="font-size:.75rem;color:var(--text-muted)">${r.thanhPhan}</td>
+          <td style="color:var(--danger);font-weight:700">${r.slHCM}</td>
+          <td style="color:var(--danger);font-weight:700">${r.slHN}</td>`;
+        tbodyZ.appendChild(tr);
+      }
+      document.getElementById("zero-summary").textContent = `Xem danh sách (${zeroStock.length} sản phẩm)`;
+      document.getElementById("card-zero").style.display = "";
     }
 
     // SKU chưa mapping

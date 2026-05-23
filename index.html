@@ -442,10 +442,29 @@ function idxToColLetter(idx) {
 }
 
 // ────────────────────────────────────────────────────────────
-// BƯỚC 1: Đọc tồn kho từ Salework
+// BƯỚC 1: Đọc tồn kho từ Misa
 // Hỗ trợ: 2 kho (HN + HCM), chỉ HN, hoặc chỉ HCM
-// Detect cột kho động từ sub-header row (dòng ngay dưới "Mã SKU")
+// Detect cột kho động — tránh nhầm cột "Giá trị" khi chỉ có 1 kho
 // ────────────────────────────────────────────────────────────
+
+// Helper nhận biết label kho — xử lý cả label ngắn ("SG","HN") lẫn dài ("Kho Hà Nội")
+const EXACT_HN  = ["hn", "hà nội", "ha noi", "hanoi", "hà noi", "ha nội"];
+const EXACT_HCM = ["sg", "hcm", "sài gòn", "sai gon", "hồ chí minh",
+                   "ho chi minh", "saigon", "tp.hcm", "tp hcm", "hồ chi minh", "ho chí minh"];
+
+function isHNLabel(val) {
+  if (val == null) return false;
+  const v = String(val).toLowerCase().trim();
+  if (EXACT_HN.includes(v)) return true;
+  return KW_HN.some(kw => v.includes(kw.trim()));
+}
+function isSGLabel(val) {
+  if (val == null) return false;
+  const v = String(val).toLowerCase().trim();
+  if (EXACT_HCM.includes(v)) return true;
+  return KW_HCM.some(kw => v.includes(kw.trim()));
+}
+
 function loadTonKho(arrayBuffer) {
   const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -462,39 +481,52 @@ function loadTonKho(arrayBuffer) {
   if (headerRow === -1)
     throw new Error("Không tìm thấy header 'Mã SKU' trong file tồn kho.\nKiểm tra lại file đúng chưa.");
 
-  // Detect cột kho từ sub-header row (headerRow + 1)
-  // Sub-header chứa label "SG", "HN", "Hà Nội", "Hồ Chí Minh"...
-  const subHeaderRow = data[headerRow + 1] || [];
   let colSG = null, colHN = null;
+
+  // Ưu tiên 1: detect từ sub-header row (dòng ngay dưới "Mã SKU")
+  // Misa thường có sub-header "SG" / "HN" dưới cột "Số lượng"
+  const subHeaderRow = data[headerRow + 1] || [];
   for (let i = 0; i < subHeaderRow.length; i++) {
-    if (subHeaderRow[i] == null) continue;
-    const v = String(subHeaderRow[i]).toLowerCase().trim();
-    if (colHN === null && KW_HN.some(kw => v.includes(kw.trim()))) colHN = i;
-    if (colSG === null && KW_HCM.some(kw => v.includes(kw.trim()))) colSG = i;
+    if (colHN === null && isHNLabel(subHeaderRow[i])) colHN = i;
+    if (colSG === null && isSGLabel(subHeaderRow[i])) colSG = i;
   }
 
-  // Fallback: nếu sub-header không detect được (định dạng cũ), dùng vị trí mặc định
-  if (colSG === null && colHN === null) { colSG = 3; colHN = 4; }
+  // Ưu tiên 2: nếu sub-header không detect được, thử quét chính header row
+  // (format gộp: "SL HN", "SL SG", "Tồn HCM"...)
+  if (colSG === null && colHN === null) {
+    const hdrRow = data[headerRow] || [];
+    for (let i = 0; i < hdrRow.length; i++) {
+      if (colHN === null && isHNLabel(hdrRow[i])) colHN = i;
+      if (colSG === null && isSGLabel(hdrRow[i])) colSG = i;
+    }
+  }
 
-  // Dữ liệu bắt đầu từ headerRow + 2 (bỏ qua 1 dòng sub-header)
+  // Fallback cuối: chỉ dùng khi KHÔNG detect được GÌ cả (cả 2 đều null)
+  // KHÔNG dùng khi đã detect được 1 — tránh nhầm cột "Giá trị" thành tồn kho
+  if (colSG === null && colHN === null) {
+    colSG = 3;
+    colHN = 4;
+  }
+
+  // Dữ liệu bắt đầu từ headerRow + 2 (bỏ qua dòng sub-header)
   const dataStart = headerRow + 2;
   const tonKho = {};
 
   for (let i = dataStart; i < data.length; i++) {
     const row = data[i];
     if (!row || row[0] == null || String(row[0]).trim() === "") continue;
-    const sku = String(row[0]).trim();
+    const sku  = String(row[0]).trim();
+    // colSG/colHN null = kho đó không có trong file → gán 0, không đọc cột sai
     const slSG = colSG !== null ? parseIntSafe(row[colSG]) : 0;
     const slHN = colHN !== null ? parseIntSafe(row[colHN]) : 0;
     tonKho[sku] = { SL_SG: slSG, SL_HN: slHN };
   }
 
-  // Trả về cả thông tin kho nào có trong file để hiển thị cho user
   const warehouses = [];
   if (colSG !== null) warehouses.push("HCM/SG");
   if (colHN !== null) warehouses.push("HN");
 
-  return { tonKho, warehouses };
+  return { tonKho, warehouses, colSG, colHN };
 }
 
 function parseIntSafe(v) {

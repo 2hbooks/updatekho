@@ -678,7 +678,11 @@ function calcComboTon(components, tonKho) {
 // ────────────────────────────────────────────────────────────
 const XLSX_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
-async function processMassUpdate(arrayBuffer, tonKho, reverseMap, comboByVariation) {
+// tonFlags = { tonHasSG, tonHasHN } — chỉ ghi vào kho nào file tồn thực sự có dữ liệu
+// Nếu file tồn chỉ có SG: tonHasHN=false → KHÔNG ghi vào cột HN → giữ nguyên giá trị HN cũ
+async function processMassUpdate(arrayBuffer, tonKho, reverseMap, comboByVariation, tonFlags = {}) {
+  const tonHasSG = tonFlags.tonHasSG !== false;  // mặc định true nếu không truyền
+  const tonHasHN = tonFlags.tonHasHN !== false;
   const zip = await JSZip.loadAsync(arrayBuffer);
 
   // 1. Đọc shared strings
@@ -769,10 +773,12 @@ async function processMassUpdate(arrayBuffer, tonKho, reverseMap, comboByVariati
       }
       const slSG = tonKho[saleworkSku].SL_SG;
       const slHN = tonKho[saleworkSku].SL_HN;
-      // Chỉ ghi vào cột nào thực sự tồn tại trong file mass_update
-      if (colHCM !== null) updateXmlCell(rowEl, colHCM, slSG, r, doc);
-      if (colHN  !== null) updateXmlCell(rowEl, colHN,  slHN, r, doc);
-      logRecords.push({ variationId, skuShopee, loai: "Đơn", thanhPhan: saleworkSku, trangThai: "✅ Đã cập nhật", slHCM: colHCM !== null ? slSG : "—", slHN: colHN !== null ? slHN : "—" });
+      // Chỉ ghi vào cột nếu (1) cột đó tồn tại trong mass_update VÀ (2) file tồn có dữ liệu kho đó
+      if (colHCM !== null && tonHasSG) updateXmlCell(rowEl, colHCM, slSG, r, doc);
+      if (colHN  !== null && tonHasHN) updateXmlCell(rowEl, colHN,  slHN, r, doc);
+      const logSG = (colHCM !== null && tonHasSG) ? slSG : "—";
+      const logHN = (colHN  !== null && tonHasHN) ? slHN : "—";
+      logRecords.push({ variationId, skuShopee, loai: "Đơn", thanhPhan: saleworkSku, trangThai: "✅ Đã cập nhật", slHCM: logSG, slHN: logHN });
       cntDon++;
       continue;
     }
@@ -787,10 +793,12 @@ async function processMassUpdate(arrayBuffer, tonKho, reverseMap, comboByVariati
         cntSkip++;
         continue;
       }
-      // Chỉ ghi vào cột nào thực sự tồn tại trong file mass_update
-      if (colHCM !== null) updateXmlCell(rowEl, colHCM, slSG, r, doc);
-      if (colHN  !== null) updateXmlCell(rowEl, colHN,  slHN, r, doc);
-      logRecords.push({ variationId, skuShopee, loai: "Combo", thanhPhan: tpStr, trangThai: "✅ Đã cập nhật", slHCM: colHCM !== null ? slSG : "—", slHN: colHN !== null ? slHN : "—" });
+      // Chỉ ghi vào cột nếu (1) cột đó tồn tại trong mass_update VÀ (2) file tồn có dữ liệu kho đó
+      if (colHCM !== null && tonHasSG) updateXmlCell(rowEl, colHCM, slSG, r, doc);
+      if (colHN  !== null && tonHasHN) updateXmlCell(rowEl, colHN,  slHN, r, doc);
+      const logSG2 = (colHCM !== null && tonHasSG) ? slSG : "—";
+      const logHN2 = (colHN  !== null && tonHasHN) ? slHN : "—";
+      logRecords.push({ variationId, skuShopee, loai: "Combo", thanhPhan: tpStr, trangThai: "✅ Đã cập nhật", slHCM: logSG2, slHN: logHN2 });
       cntCombo++;
       continue;
     }
@@ -929,7 +937,9 @@ async function runProcess() {
 
     // Bước 1: Tồn kho
     setStatus("⏳ Đọc file tồn kho...", "info");
-    const { tonKho, warehouses: tonWarehouses } = loadTonKho(bufTon);
+    const { tonKho, warehouses: tonWarehouses, colSG: tonColSG, colHN: tonColHN } = loadTonKho(bufTon);
+    const tonHasSG = tonColSG !== null;
+    const tonHasHN = tonColHN !== null;
 
     // Bước 2: Mapping
     setStatus("⏳ Đọc bảng mapping (tất cả sheets)...", "info");
@@ -937,7 +947,9 @@ async function runProcess() {
 
     // Bước 3: Xử lý mass_update
     setStatus("⏳ Điền tồn kho vào file mass_update...", "info");
-    const { outputBuffer, logRecords, stats } = await processMassUpdate(bufMass, tonKho, reverseMap, comboByVariation);
+    const { outputBuffer, logRecords, stats } = await processMassUpdate(
+      bufMass, tonKho, reverseMap, comboByVariation, { tonHasSG, tonHasHN }
+    );
 
     // Bước 4: Tạo log
     setStatus("⏳ Tạo file log...", "info");

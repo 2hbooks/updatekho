@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tool Update Tồn Kho Shopee — 2H</title>
+
+  <!-- SheetJS (đọc/ghi Excel) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- JSZip (đọc/ghi file xlsx như zip) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f0f4f8;
+      --card: #ffffff;
+      --border: #d1dce8;
+      --accent: #1a56db;
+      --accent-dark: #1341a8;
+      --success: #0e7a45;
+      --success-bg: #d1fae5;
+      --warn: #92400e;
+      --warn-bg: #fef3c7;
+      --danger: #991b1b;
+      --danger-bg: #fee2e2;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.06);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 0 0 60px;
+    }
+
+    /* ─── Header ─── */
+    header {
+      background: linear-gradient(135deg, #1a56db 0%, #0e3f9e 100%);
+      color: #fff;
+      padding: 28px 32px 24px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+    header .logo { font-size: 2rem; }
+    header h1 { font-size: 1.35rem; font-weight: 700; line-height: 1.2; }
+    header p  { font-size: .85rem; opacity: .82; margin-top: 4px; }
+
+    /* ─── Main container ─── */
+    main {
+      max-width: 900px;
+      margin: 32px auto 0;
+      padding: 0 20px;
+    }
+
+    /* ─── Section label ─── */
+    .section-label {
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    /* ─── Upload grid ─── */
+    .upload-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 640px) { .upload-grid { grid-template-columns: 1fr; } }
+
+    .upload-box {
+      background: var(--card);
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 24px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, box-shadow .2s, background .15s;
+      user-select: none;
+      position: relative;
+    }
+    .upload-box:hover  { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(26,86,219,.12); }
+    .upload-box.drag   { border-color: var(--accent); background: #eff6ff; }
+    .upload-box.done   { border-color: var(--success); background: #f0fdf4; border-style: solid; }
+
+    .upload-box input[type=file] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .upload-icon { font-size: 2rem; margin-bottom: 8px; }
+    .upload-num  { font-size: .7rem; font-weight: 700; letter-spacing: .06em; color: var(--accent); margin-bottom: 6px; text-transform: uppercase; }
+    .upload-title { font-size: .92rem; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .upload-hint  { font-size: .75rem; color: var(--text-muted); }
+    .upload-file-name {
+      display: none;
+      font-size: .72rem;
+      font-weight: 600;
+      color: var(--success);
+      background: var(--success-bg);
+      border-radius: 6px;
+      padding: 4px 8px;
+      margin-top: 8px;
+      word-break: break-all;
+    }
+    .upload-box.done .upload-file-name { display: block; }
+    .upload-box.done .upload-hint { display: none; }
+
+    /* ─── Process button ─── */
+    #btn-process {
+      width: 100%;
+      padding: 16px;
+      font-size: 1rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      transition: background .15s, opacity .15s, transform .1s;
+      letter-spacing: .02em;
+      margin-bottom: 8px;
+    }
+    #btn-process:hover:not(:disabled) { background: var(--accent-dark); transform: translateY(-1px); }
+    #btn-process:disabled { opacity: .45; cursor: not-allowed; }
+
+    /* ─── Status bar ─── */
+    #status {
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: .85rem;
+      margin-bottom: 20px;
+      display: none;
+    }
+    #status.info    { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; display: block; }
+    #status.success { background: var(--success-bg); color: var(--success); border: 1px solid #6ee7b7; display: block; }
+    #status.error   { background: var(--danger-bg); color: var(--danger); border: 1px solid #fca5a5; display: block; white-space: pre-wrap; }
+    #status.warn    { background: var(--warn-bg); color: var(--warn); border: 1px solid #fcd34d; display: block; }
+
+    /* ─── Card ─── */
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .card h2 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+    /* ─── Stats row ─── */
+    .stats-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 0; }
+    .stat-box { background: var(--bg); border-radius: 8px; padding: 14px 12px; text-align: center; }
+    .stat-box .stat-num { font-size: 1.8rem; font-weight: 800; }
+    .stat-box .stat-lbl { font-size: .72rem; color: var(--text-muted); margin-top: 2px; }
+    .stat-box.s-green .stat-num { color: var(--success); }
+    .stat-box.s-blue  .stat-num { color: var(--accent); }
+    .stat-box.s-gray  .stat-num { color: #94a3b8; }
+
+    /* ─── Download buttons ─── */
+    .dl-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+    @media (max-width: 500px) { .dl-row { grid-template-columns: 1fr; } }
+    .btn-dl {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 13px 18px;
+      border-radius: 8px;
+      border: none;
+      font-size: .88rem;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: filter .15s, transform .1s;
+    }
+    .btn-dl:hover { filter: brightness(.92); transform: translateY(-1px); }
+    .btn-dl.primary { background: var(--accent); color: #fff; }
+    .btn-dl.secondary { background: #e2e8f0; color: var(--text); }
+
+    /* ─── Table ─── */
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    th {
+      background: #1a56db; color: #fff; text-align: left;
+      padding: 8px 10px; font-weight: 600; white-space: nowrap;
+    }
+    td {
+      padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top;
+      word-break: break-word;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .badge-ok   { background: #d1fae5; color: #065f46; border-radius: 4px; padding: 2px 6px; font-size: .7rem; font-weight: 700; }
+    .badge-skip { background: #f3f4f6; color: #6b7280; border-radius: 4px; padding: 2px 6px; font-size: .7rem; }
+
+    /* ─── Collapsible ─── */
+    details { margin-top: 12px; }
+    summary {
+      cursor: pointer; font-size: .82rem; font-weight: 600; color: var(--accent);
+      padding: 8px 0; user-select: none; list-style: none; display: flex; align-items: center; gap: 6px;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::before { content: "▶"; font-size: .65rem; transition: transform .2s; display: inline-block; }
+    details[open] summary::before { transform: rotate(90deg); }
+
+    /* ─── Spinner ─── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    /* ─── Footer ─── */
+    footer {
+      text-align: center;
+      margin-top: 40px;
+      font-size: .75rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📦</div>
+  <div>
+    <h1>Tool Update Tồn Kho VPP → Shopee</h1>
+    <p>Upload 3 file → tool tự động điền tồn kho → download mass_update sẵn sàng upload lên Shopee</p>
+  </div>
+</header>
+
+<main>
+
+  <!-- ─── Upload section ─── -->
+  <div class="section-label" style="margin-top:0">Bước 1 — Upload 3 file</div>
+  <div class="upload-grid">
+
+    <!-- File 1: Tồn kho -->
+    <div class="upload-box" id="box-ton" ondragover="onDrag(event,'box-ton')" ondragleave="offDrag('box-ton')" ondrop="onDrop(event,'ton')">
+      <input type="file" id="input-ton" accept=".xlsx" onchange="onFileChange('ton',this)" />
+      <div class="upload-icon">📊</div>
+      <div class="upload-num">File 1</div>
+      <div class="upload-title">Tồn kho Misa</div>
+      <div class="upload-hint">TỒN VPP...xlsx<br>(export từ Misa)</div>
+      <div class="upload-file-name" id="name-ton"></div>
+    </div>
+
+    <!-- File 2: Mass update -->
+    <div class="upload-box" id="box-mass" ondragover="onDrag(event,'box-mass')" ondragleave="offDrag('box-mass')" ondrop="onDrop(event,'mass')">
+      <input type="file" id="input-mass" accept=".xlsx" onchange="onFileChange('mass',this)" />
+      <div class="upload-icon">🛒</div>
+      <div class="upload-num">File 2</div>
+      <div class="upload-title">Mass Update Shopee</div>
+      <div class="upload-hint">mass_update_...xlsx<br>(download từ Shopee)</div>
+      <div class="upload-file-name" id="name-mass"></div>
+    </div>
+
+    <!-- File 3: Mapping -->
+    <div class="upload-box" id="box-map" ondragover="onDrag(event,'box-map')" ondragleave="offDrag('box-map')" ondrop="onDrop(event,'map')">
+      <input type="file" id="input-map" accept=".xlsx" onchange="onFileChange('map',this)" />
+      <div class="upload-icon">🗂️</div>
+      <div class="upload-num">File 3</div>
+      <div class="upload-title">Bảng Mapping</div>
+      <div class="upload-hint">DS sản phẩm MAP<br>Salework ↔ Shopee</div>
+      <div class="upload-file-name" id="name-map"></div>
+    </div>
+
+  </div>
+
+  <!-- ─── Process button ─── -->
+  <div class="section-label">Bước 2 — Xử lý</div>
+  <button id="btn-process" disabled onclick="runProcess()">⚙️ Xử lý</button>
+
+  <!-- ─── Status ─── -->
+  <div id="status"></div>
+
+  <!-- ─── Results (hidden until done) ─── -->
+  <div id="results" style="display:none">
+
+    <!-- Stats -->
+    <div class="card">
+      <h2>📊 Kết quả xử lý</h2>
+      <div class="stats-row">
+        <div class="stat-box s-green">
+          <div class="stat-num" id="cnt-don">—</div>
+          <div class="stat-lbl">Sản phẩm đơn đã điền</div>
+        </div>
+        <div class="stat-box s-blue">
+          <div class="stat-num" id="cnt-combo">—</div>
+          <div class="stat-lbl">Combo đã điền</div>
+        </div>
+        <div class="stat-box s-gray">
+          <div class="stat-num" id="cnt-skip">—</div>
+          <div class="stat-lbl">Bỏ qua (sách / chưa map)</div>
+        </div>
+      </div>
+      <div style="margin-top:12px; font-size:.8rem; color:var(--text-muted)" id="col-info"></div>
+
+      <!-- Download buttons -->
+      <div class="dl-row">
+        <a class="btn-dl primary" id="dl-mass" href="#" download>📥 Download mass_update đã điền</a>
+        <a class="btn-dl secondary" id="dl-log" href="#" download>📋 Download log chi tiết (.xlsx)</a>
+      </div>
+    </div>
+
+    <!-- Sheet summary -->
+    <div class="card" id="card-sheets" style="display:none">
+      <h2>📋 Chi tiết mapping theo sheet</h2>
+      <div class="tbl-wrap">
+        <table id="tbl-sheets">
+          <thead><tr><th>Sheet (Shop)</th><th>Sản phẩm đơn</th><th>Thành phần combo</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SKU chưa mapping -->
+    <div class="card" id="card-nomap" style="display:none">
+      <h2>⚠️ SKU tồn kho chưa có mapping</h2>
+      <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:12px">
+        Các mã Salework có tồn kho nhưng chưa được kết nối với SKU Shopee. Cần bổ sung vào bảng mapping.
+      </p>
+      <details>
+        <summary id="nomap-summary">Xem danh sách</summary>
+        <div class="tbl-wrap" style="margin-top:10px">
+          <table id="tbl-nomap">
+            <thead><tr><th>Mã Salework</th><th>SL SG</th><th>SL HN</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
+  </div>
+
+</main>
+
+<footer>2H Books · Tool vận hành sàn TMDT · Liên hệ IT nếu gặp lỗi</footer>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JAVASCRIPT — toàn bộ logic xử lý
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+"use strict";
+
+// ────────────────────────────────────────────────────────────
+// State
+// ────────────────────────────────────────────────────────────
+const files = { ton: null, mass: null, map: null };
+
+// ────────────────────────────────────────────────────────────
+// Drag & drop / upload UI helpers
+// ────────────────────────────────────────────────────────────
+function onDrag(e, boxId) {
+  e.preventDefault();
+  document.getElementById(boxId).classList.add("drag");
+}
+function offDrag(boxId) {
+  document.getElementById(boxId).classList.remove("drag");
+}
+function onDrop(e, key) {
+  e.preventDefault();
+  const boxId = "box-" + key;
+  offDrag(boxId);
+  const file = e.dataTransfer.files[0];
+  if (file) setFile(key, file);
+}
+function onFileChange(key, input) {
+  if (input.files[0]) setFile(key, input.files[0]);
+}
+function setFile(key, file) {
+  files[key] = file;
+  const box = document.getElementById("box-" + key);
+  box.classList.add("done");
+  document.getElementById("name-" + key).textContent = "✓ " + file.name;
+  checkReady();
+}
+function checkReady() {
+  const ready = files.ton && files.mass && files.map;
+  document.getElementById("btn-process").disabled = !ready;
+}
+
+// ────────────────────────────────────────────────────────────
+// Status helper
+// ────────────────────────────────────────────────────────────
+function setStatus(msg, type) {
+  const el = document.getElementById("status");
+  el.className = type;
+  el.innerHTML = msg;
+}
+function clearStatus() {
+  const el = document.getElementById("status");
+  el.className = "";
+  el.style.display = "none";
+}
+
+// ────────────────────────────────────────────────────────────
+// Column utilities (Excel A→0, AA→26, ...)
+// ────────────────────────────────────────────────────────────
+function colLetterToIdx(col) {
+  col = col.replace(/\d/g, "").toUpperCase();
+  let idx = 0;
+  for (const c of col) idx = idx * 26 + (c.charCodeAt(0) - 64);
+  return idx - 1;
+}
+function idxToColLetter(idx) {
+  let result = "";
+  idx++;
+  while (idx > 0) {
+    const r = (idx - 1) % 26;
+    result = String.fromCharCode(65 + r) + result;
+    idx = Math.floor((idx - 1) / 26);
+  }
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────
+// BƯỚC 1: Đọc tồn kho từ Salework
+// Hỗ trợ: 2 kho (HN + HCM), chỉ HN, hoặc chỉ HCM
+// Detect cột kho động từ sub-header row (dòng ngay dưới "Mã SKU")
+// ────────────────────────────────────────────────────────────
+function loadTonKho(arrayBuffer) {
+  const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+  // Tìm dòng header có "Mã SKU"
+  let headerRow = -1;
+  for (let i = 0; i < data.length; i++) {
+    if (data[i].some(v => v != null && String(v).trim() === "Mã SKU")) {
+      headerRow = i;
+      break;
+    }
+  }
+  if (headerRow === -1)
+    throw new Error("Không tìm thấy header 'Mã SKU' trong file tồn kho.\nKiểm tra lại file đúng chưa.");
+
+  // Detect cột kho từ sub-header row (headerRow + 1)
+  // Sub-header chứa label "SG", "HN", "Hà Nội", "Hồ Chí Minh"...
+  const subHeaderRow = data[headerRow + 1] || [];
+  let colSG = null, colHN = null;
+  for (let i = 0; i < subHeaderRow.length; i++) {
+    if (subHeaderRow[i] == null) continue;
+    const v = String(subHeaderRow[i]).toLowerCase().trim();
+    if (colHN === null && KW_HN.some(kw => v.includes(kw.trim()))) colHN = i;
+    if (colSG === null && KW_HCM.some(kw => v.includes(kw.trim()))) colSG = i;
+  }
+
+  // Fallback: nếu sub-header không detect được (định dạng cũ), dùng vị trí mặc định
+  if (colSG === null && colHN === null) { colSG = 3; colHN = 4; }
+
+  // Dữ liệu bắt đầu từ headerRow + 2 (bỏ qua 1 dòng sub-header)
+  const dataStart = headerRow + 2;
+  const tonKho = {};
+
+  for (let i = dataStart; i < data.length; i++) {
+    const row = data[i];
+    if (!row || row[0] == null || String(row[0]).trim() === "") continue;
+    const sku = String(row[0]).trim();
+    const slSG = colSG !== null ? parseIntSafe(row[colSG]) : 0;
+    const slHN = colHN !== null ? parseIntSafe(row[colHN]) : 0;
+    tonKho[sku] = { SL_SG: slSG, SL_HN: slHN };
+  }
+
+  // Trả về cả thông tin kho nào có trong file để hiển thị cho user
+  const warehouses = [];
+  if (colSG !== null) warehouses.push("HCM/SG");
+  if (colHN !== null) warehouses.push("HN");
+
+  return { tonKho, warehouses };
+}
+
+function parseIntSafe(v) {
+  if (v == null) return 0;
+  const n = parseInt(String(v).replace(/,/g, "").trim());
+  return isNaN(n) ? 0 : n;
+}
+
+// ────────────────────────────────────────────────────────────
+// BƯỚC 2: Đọc mapping từ tất cả sheets
+// Trả về { reverseMap, comboByVariation, sheetSummary }
+// ────────────────────────────────────────────────────────────
+function loadMapping(arrayBuffer) {
+  const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
+  const reverseMap        = {};  // SKU_Shopee → Ma_Salework
+  const comboByVariation  = {};  // Ma_phan_loai → [{Ma_Salework, SL_combo}]
+  const sheetSummary      = [];
+
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    if (!ws) continue;
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    if (!data.length) continue;
+
+    // Tìm header row
+    let headerIdx = -1;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].some(v => v != null && ["SKU Shopee", "Mã Salework liên kết"].includes(String(v).trim()))) {
+        headerIdx = i;
+        break;
+      }
+    }
+    if (headerIdx === -1) continue;
+
+    const headers = data[headerIdx].map(v => (v != null ? String(v).trim() : ""));
+    const colSkuShopee  = headers.indexOf("SKU Shopee");
+    const colMaSalework = headers.indexOf("Mã Salework liên kết");
+    const colMaPhanLoai = headers.indexOf("Mã phân loại");
+    const colSlCombo    = headers.indexOf("Số lượng combo");
+
+    if (colSkuShopee === -1 || colMaSalework === -1) continue;
+
+    let countDon = 0, countCombo = 0;
+
+    for (let i = headerIdx + 1; i < data.length; i++) {
+      const row = data[i];
+      if (!row || row.every(v => v == null)) continue;
+
+      const getCol = (idx) => {
+        if (idx === -1 || idx >= row.length || row[idx] == null) return "";
+        return String(row[idx]).trim();
+      };
+
+      const skuShopee  = getCol(colSkuShopee);
+      const maSalework = getCol(colMaSalework);
+      const maPhanLoai = colMaPhanLoai !== -1 ? getCol(colMaPhanLoai) : "";
+      const slComboRaw = colSlCombo !== -1 && colSlCombo < row.length ? row[colSlCombo] : 1;
+
+      if (!maSalework || ["None", "nan"].includes(maSalework)) continue;
+      if (/^\d{10,}$/.test(maSalework)) continue;  // bỏ ISBN sách
+
+      let slCombo = 1;
+      try { slCombo = Math.max(1, parseInt(slComboRaw) || 1); } catch(e) {}
+
+      const skuShopeeValid = skuShopee && !["None", "nan", ""].includes(skuShopee);
+
+      if (skuShopeeValid) {
+        // Sản phẩm đơn: SKU_Shopee → Ma_Salework (chỉ ghi lần đầu)
+        if (!(skuShopee in reverseMap)) reverseMap[skuShopee] = maSalework;
+        countDon++;
+      } else {
+        // Combo: dùng Ma_phan_loai làm key
+        if (!maPhanLoai || ["None", "nan", ""].includes(maPhanLoai)) continue;
+        if (!(maPhanLoai in comboByVariation)) comboByVariation[maPhanLoai] = [];
+        const existingSkus = new Set(comboByVariation[maPhanLoai].map(c => c.Ma_Salework));
+        if (!existingSkus.has(maSalework)) {
+          comboByVariation[maPhanLoai].push({ Ma_Salework: maSalework, SL_combo: slCombo });
+          countCombo++;
+        }
+      }
+    }
+
+    sheetSummary.push({ sheet: sheetName, don: countDon, combo: countCombo });
+  }
+
+  return { reverseMap, comboByVariation, sheetSummary };
+}
+
+// ────────────────────────────────────────────────────────────
+// BƯỚC 3: Detect cột kho HN / HCM từ header rows của mass_update
+// rowsMap: { rowNum(1-indexed): { colIdx: {val} } }
+// dataStart: 6 (row đầu tiên chứa data thực)
+// ────────────────────────────────────────────────────────────
+const KW_HN  = ["hà nội", "ha noi", "hanoi", " hn", ":hn", "kho hn", "hà noi", "ha nội"];
+const KW_HCM = ["hồ chí minh", "ho chi minh", "hcm", "sài gòn", "sai gon",
+                "saigon", "tp.hcm", "tp hcm", " sg", ":sg", "kho sg",
+                "hồ chi minh", "ho chí minh"];
+
+function detectWarehouseCols(rowsMap, dataStart) {
+  let colHN = null, colHCM = null, nameHN = "", nameHCM = "";
+
+  for (let rowNum = 1; rowNum < dataStart; rowNum++) {
+    const rowData = rowsMap[rowNum] || {};
+    for (const [colIdxStr, cell] of Object.entries(rowData)) {
+      if (!cell || cell.val == null) continue;
+      const valLower = String(cell.val).toLowerCase();
+      const colIdx = parseInt(colIdxStr);
+
+      if (colHN === null && KW_HN.some(kw => valLower.includes(kw))) {
+        colHN  = colIdx;
+        nameHN = String(cell.val).trim();
+      }
+      if (colHCM === null && KW_HCM.some(kw => valLower.includes(kw))) {
+        colHCM  = colIdx;
+        nameHCM = String(cell.val).trim();
+      }
+    }
+    if (colHN !== null && colHCM !== null) break;
+  }
+
+  // Nếu không tìm được CẢ 2: lỗi. Chỉ tìm được 1: OK — single-warehouse mode
+  if (colHN === null && colHCM === null) {
+    throw new Error(
+      "Không tìm thấy cột kho nào trong file mass_update.\n" +
+      "Cột kho phải chứa từ khóa: HN / Hà Nội / Ha Noi (kho HN) hoặc HCM / Sài Gòn / Hồ Chí Minh (kho HCM).\n" +
+      "Kiểm tra lại tên cột trong file Shopee."
+    );
+  }
+
+  return { colHN, colHCM, nameHN, nameHCM };
+}
+
+// ────────────────────────────────────────────────────────────
+// Tính tồn kho combo
+// ────────────────────────────────────────────────────────────
+function calcComboTon(components, tonKho) {
+  const sgList = [], hnList = [];
+  for (const comp of components) {
+    const sku = comp.Ma_Salework, qty = comp.SL_combo;
+    if (!(sku in tonKho)) return { slSG: null, slHN: null, detail: `thiếu tồn: ${sku}` };
+    sgList.push(Math.floor(tonKho[sku].SL_SG / qty));
+    hnList.push(Math.floor(tonKho[sku].SL_HN / qty));
+  }
+  return { slSG: Math.min(...sgList), slHN: Math.min(...hnList), detail: "ok" };
+}
+
+// ────────────────────────────────────────────────────────────
+// BƯỚC 4: Xử lý file mass_update (JSZip + DOMParser)
+// ────────────────────────────────────────────────────────────
+const XLSX_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+
+async function processMassUpdate(arrayBuffer, tonKho, reverseMap, comboByVariation) {
+  const zip = await JSZip.loadAsync(arrayBuffer);
+
+  // 1. Đọc shared strings
+  const sharedStrings = [];
+  const ssFile = zip.file("xl/sharedStrings.xml");
+  if (ssFile) {
+    const ssText = await ssFile.async("text");
+    const ssDoc  = new DOMParser().parseFromString(ssText, "application/xml");
+    const siEls  = ssDoc.getElementsByTagNameNS(XLSX_NS, "si");
+    for (const si of siEls) {
+      const tEls = si.getElementsByTagNameNS(XLSX_NS, "t");
+      let text = "";
+      for (const t of tEls) text += (t.textContent || "");
+      sharedStrings.push(text);
+    }
+  }
+
+  // 2. Đọc + patch sheet1.xml (fix activePane bug của Shopee)
+  let sheetText = await zip.file("xl/worksheets/sheet1.xml").async("text");
+  sheetText = sheetText
+    .replace(/activePane="bottom_left"/g, 'activePane="bottomLeft"')
+    .replace(/activePane="top_left"/g,    'activePane="topLeft"')
+    .replace(/activePane="top_right"/g,   'activePane="topRight"')
+    .replace(/activePane="bottom_right"/g,'activePane="bottomRight"');
+
+  // 3. Parse XML
+  const doc = new DOMParser().parseFromString(sheetText, "application/xml");
+  const parseErr = doc.querySelector("parsererror");
+  if (parseErr) throw new Error("Không parse được file mass_update XML:\n" + parseErr.textContent.slice(0, 200));
+
+  const sheetData = doc.getElementsByTagNameNS(XLSX_NS, "sheetData")[0];
+  if (!sheetData) throw new Error("Không tìm thấy sheetData trong file mass_update.");
+
+  const DATA_START      = 6;  // dữ liệu từ row 6 (1-indexed)
+  const COL_VARIATION   = 2;  // C = Mã Phân loại
+  const COL_SKU         = 5;  // F = SKU
+
+  // 4. Build rowsMap để detect cột kho
+  const allRowEls = Array.from(sheetData.getElementsByTagNameNS(XLSX_NS, "row"));
+  const rowsMap   = {};
+  for (const rowEl of allRowEls) {
+    const r    = parseInt(rowEl.getAttribute("r"));
+    const cmap = {};
+    for (const c of rowEl.getElementsByTagNameNS(XLSX_NS, "c")) {
+      const ref    = c.getAttribute("r");
+      const colStr = ref.replace(/\d/g, "");
+      const colIdx = colLetterToIdx(colStr);
+      const tAttr  = c.getAttribute("t") || "";
+      const vEl    = c.getElementsByTagNameNS(XLSX_NS, "v")[0];
+      let val = null;
+      if (vEl && vEl.textContent) {
+        val = tAttr === "s"
+          ? (sharedStrings[parseInt(vEl.textContent)] ?? null)
+          : vEl.textContent;
+      }
+      cmap[colIdx] = { val };
+    }
+    rowsMap[r] = cmap;
+  }
+
+  // 5. Detect warehouse columns
+  const { colHN, colHCM, nameHN, nameHCM } = detectWarehouseCols(rowsMap, DATA_START);
+
+  // 6. Process rows
+  const logRecords = [];
+  let cntDon = 0, cntCombo = 0, cntSkip = 0;
+
+  for (const rowEl of allRowEls) {
+    const r = parseInt(rowEl.getAttribute("r"));
+    if (r < DATA_START) continue;
+
+    const rowData    = rowsMap[r] || {};
+    const getCellVal = (colIdx) => {
+      const cell = rowData[colIdx];
+      return (cell && cell.val != null) ? String(cell.val).trim() : "";
+    };
+
+    const skuShopee  = getCellVal(COL_SKU);
+    const variationId = getCellVal(COL_VARIATION);
+
+    // ── Sản phẩm đơn ──
+    if (skuShopee && skuShopee in reverseMap) {
+      const saleworkSku = reverseMap[skuShopee];
+      if (!(saleworkSku in tonKho)) {
+        logRecords.push({ variationId, skuShopee, loai: "Đơn", thanhPhan: saleworkSku, trangThai: "⏭ Bỏ qua — không có tồn kho", slHCM: "", slHN: "" });
+        cntSkip++;
+        continue;
+      }
+      const slSG = tonKho[saleworkSku].SL_SG;
+      const slHN = tonKho[saleworkSku].SL_HN;
+      // Chỉ ghi vào cột nào thực sự tồn tại trong file mass_update
+      if (colHCM !== null) updateXmlCell(rowEl, colHCM, slSG, r, doc);
+      if (colHN  !== null) updateXmlCell(rowEl, colHN,  slHN, r, doc);
+      logRecords.push({ variationId, skuShopee, loai: "Đơn", thanhPhan: saleworkSku, trangThai: "✅ Đã cập nhật", slHCM: colHCM !== null ? slSG : "—", slHN: colHN !== null ? slHN : "—" });
+      cntDon++;
+      continue;
+    }
+
+    // ── Combo ──
+    if (variationId && variationId in comboByVariation) {
+      const components = comboByVariation[variationId];
+      const { slSG, slHN, detail } = calcComboTon(components, tonKho);
+      const tpStr = components.map(c => `${c.Ma_Salework}×${c.SL_combo}`).join(" + ");
+      if (slSG === null) {
+        logRecords.push({ variationId, skuShopee, loai: "Combo", thanhPhan: tpStr, trangThai: `⏭ Bỏ qua — ${detail}`, slHCM: "", slHN: "" });
+        cntSkip++;
+        continue;
+      }
+      // Chỉ ghi vào cột nào thực sự tồn tại trong file mass_update
+      if (colHCM !== null) updateXmlCell(rowEl, colHCM, slSG, r, doc);
+      if (colHN  !== null) updateXmlCell(rowEl, colHN,  slHN, r, doc);
+      logRecords.push({ variationId, skuShopee, loai: "Combo", thanhPhan: tpStr, trangThai: "✅ Đã cập nhật", slHCM: colHCM !== null ? slSG : "—", slHN: colHN !== null ? slHN : "—" });
+      cntCombo++;
+      continue;
+    }
+
+    // ── Không match ──
+    if (skuShopee) {
+      logRecords.push({ variationId, skuShopee, loai: "—", thanhPhan: "", trangThai: "⏭ Bỏ qua — không có mapping (sách/chưa map)", slHCM: "", slHN: "" });
+      cntSkip++;
+    }
+  }
+
+  // 7. Serialize XML back
+  const serializer = new XMLSerializer();
+  let newXML = serializer.serializeToString(doc);
+
+  // Thêm XML declaration nếu bị mất sau serialize
+  if (!newXML.startsWith("<?xml")) {
+    newXML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + newXML;
+  }
+
+  // Xóa khai báo namespace thừa do XMLSerializer tự thêm vào các element con mới tạo
+  // Chỉ giữ lại lần khai báo ĐẦU TIÊN (trên root element <worksheet>)
+  let _firstNs = false;
+  newXML = newXML.replace(
+    / xmlns="http:\/\/schemas\.openxmlformats\.org\/spreadsheetml\/2006\/main"/g,
+    (match) => { if (!_firstNs) { _firstNs = true; return match; } return ""; }
+  );
+
+  // 8. Rebuild zip
+  zip.file("xl/worksheets/sheet1.xml", newXML);
+  const outputBuffer = await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+
+  return {
+    outputBuffer,
+    logRecords,
+    stats: { cntDon, cntCombo, cntSkip, nameHN, nameHCM }
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// Cập nhật / tạo mới cell XML với giá trị số
+// ────────────────────────────────────────────────────────────
+function updateXmlCell(rowEl, colIdx, newVal, rowNum, doc) {
+  const colLetter = idxToColLetter(colIdx);
+  const cellRef   = colLetter + rowNum;
+
+  // Tìm cell đã có
+  let existing = null;
+  for (const c of rowEl.getElementsByTagNameNS(XLSX_NS, "c")) {
+    if (c.getAttribute("r") === cellRef) { existing = c; break; }
+  }
+
+  if (existing) {
+    existing.removeAttribute("t");  // xóa t="s" (string), cell số không cần
+    let v = existing.getElementsByTagNameNS(XLSX_NS, "v")[0];
+    if (!v) { v = doc.createElementNS(XLSX_NS, "v"); existing.appendChild(v); }
+    v.textContent = String(newVal);
+  } else {
+    // Tạo cell mới, chèn đúng thứ tự cột
+    const newC = doc.createElementNS(XLSX_NS, "c");
+    newC.setAttribute("r", cellRef);
+    const v = doc.createElementNS(XLSX_NS, "v");
+    v.textContent = String(newVal);
+    newC.appendChild(v);
+
+    const cells = Array.from(rowEl.getElementsByTagNameNS(XLSX_NS, "c"));
+    let insertBefore = null;
+    for (const c of cells) {
+      const cIdx = colLetterToIdx(c.getAttribute("r").replace(/\d/g, ""));
+      if (cIdx > colIdx) { insertBefore = c; break; }
+    }
+    if (insertBefore) rowEl.insertBefore(newC, insertBefore);
+    else rowEl.appendChild(newC);
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// BƯỚC 5: Tạo file log Excel (3 sheets)
+// ────────────────────────────────────────────────────────────
+function createLogXLSX(logRecords, tonKho, reverseMap, comboByVariation) {
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Kết quả update
+  const ws1 = [["Mã Phân Loại", "SKU Shopee", "Loại", "Thành phần / Mã Salework", "Trạng thái", "SL HCM", "SL HN"]];
+  for (const r of logRecords) ws1.push([r.variationId, r.skuShopee, r.loai, r.thanhPhan, r.trangThai, r.slHCM, r.slHN]);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws1), "Kết quả update");
+
+  // Sheet 2: Combo đã cập nhật
+  const ws2 = [["Mã Phân Loại", "Thành phần combo", "SL HCM", "SL HN"]];
+  for (const r of logRecords) {
+    if (r.loai === "Combo" && r.trangThai.startsWith("✅"))
+      ws2.push([r.variationId, r.thanhPhan, r.slHCM, r.slHN]);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws2), "Combo đã cập nhật");
+
+  // Sheet 3: SKU chưa mapping
+  const ws3 = [["Mã Salework", "SL SG (tồn thực)", "SL HN (tồn thực)", "Ghi chú"]];
+  const allMapped = new Set([
+    ...Object.values(reverseMap),
+    ...Object.values(comboByVariation).flatMap(comps => comps.map(c => c.Ma_Salework))
+  ]);
+  for (const [sku, val] of Object.entries(tonKho)) {
+    if (/^\d{10,}$/.test(sku)) continue;
+    if (!allMapped.has(sku)) ws3.push([sku, val.SL_SG, val.SL_HN, "Cần bổ sung vào bảng mapping"]);
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ws3), "SKU chưa mapping");
+
+  return XLSX.write(wb, { type: "array", bookType: "xlsx" });
+}
+
+// ────────────────────────────────────────────────────────────
+// Tạo URL download từ ArrayBuffer
+// ────────────────────────────────────────────────────────────
+function makeDownloadURL(buffer, mime) {
+  const blob = new Blob([buffer], { type: mime });
+  return URL.createObjectURL(blob);
+}
+
+// ────────────────────────────────────────────────────────────
+// MAIN: chạy toàn bộ pipeline
+// ────────────────────────────────────────────────────────────
+async function runProcess() {
+  const btn = document.getElementById("btn-process");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Đang xử lý...';
+  document.getElementById("results").style.display = "none";
+  setStatus("⏳ Đang đọc file tồn kho...", "info");
+
+  try {
+    // Đọc các file thành ArrayBuffer
+    const [bufTon, bufMass, bufMap] = await Promise.all([
+      files.ton.arrayBuffer(),
+      files.mass.arrayBuffer(),
+      files.map.arrayBuffer(),
+    ]);
+
+    // Bước 1: Tồn kho
+    setStatus("⏳ Đọc file tồn kho...", "info");
+    const { tonKho, warehouses: tonWarehouses } = loadTonKho(bufTon);
+
+    // Bước 2: Mapping
+    setStatus("⏳ Đọc bảng mapping (tất cả sheets)...", "info");
+    const { reverseMap, comboByVariation, sheetSummary } = loadMapping(bufMap);
+
+    // Bước 3: Xử lý mass_update
+    setStatus("⏳ Điền tồn kho vào file mass_update...", "info");
+    const { outputBuffer, logRecords, stats } = await processMassUpdate(bufMass, tonKho, reverseMap, comboByVariation);
+
+    // Bước 4: Tạo log
+    setStatus("⏳ Tạo file log...", "info");
+    const logBuffer = createLogXLSX(logRecords, tonKho, reverseMap, comboByVariation);
+
+
+    // ── Kết quả ──
+    const ts = new Date().toISOString().slice(0,16).replace("T","_").replace(/:/g,"");
+
+    // Download links
+    const xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    const dlMass = document.getElementById("dl-mass");
+    const dlLog  = document.getElementById("dl-log");
+    dlMass.href     = makeDownloadURL(outputBuffer, xlsxMime);
+    dlMass.download = `mass_update_FILLED_${ts}.xlsx`;
+    dlLog.href      = makeDownloadURL(logBuffer, xlsxMime);
+    dlLog.download  = `log_update_ton_${ts}.xlsx`;
+
+    // Stats
+    document.getElementById("cnt-don").textContent   = stats.cntDon;
+    document.getElementById("cnt-combo").textContent  = stats.cntCombo;
+    document.getElementById("cnt-skip").textContent   = stats.cntSkip;
+    const colInfoParts = [];
+    if (stats.nameHCM) colInfoParts.push(`"${stats.nameHCM}" (HCM)`);
+    if (stats.nameHN)  colInfoParts.push(`"${stats.nameHN}" (HN)`);
+    const tonInfo = tonWarehouses.length ? ` | Tồn kho: ${tonWarehouses.join(" + ")}` : "";
+    document.getElementById("col-info").textContent =
+      `Cột kho trong mass_update: ${colInfoParts.join(" · ")}${tonInfo}`;
+    // Cảnh báo nếu chạy single-warehouse mode
+    if (colInfoParts.length === 1) {
+      setStatus(`⚠️ Chế độ 1 kho: file mass_update chỉ có cột "${colInfoParts[0]}" — tool chỉ cập nhật kho đó.`, "warn");
+    }
+
+    // Sheet summary table
+    if (sheetSummary.length) {
+      const tbody = document.querySelector("#tbl-sheets tbody");
+      tbody.innerHTML = "";
+      for (const s of sheetSummary) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${s.sheet}</td><td>${s.don}</td><td>${s.combo}</td>`;
+        tbody.appendChild(tr);
+      }
+      document.getElementById("card-sheets").style.display = "";
+    }
+
+    // SKU chưa mapping
+    const allMapped = new Set([
+      ...Object.values(reverseMap),
+      ...Object.values(comboByVariation).flatMap(comps => comps.map(c => c.Ma_Salework))
+    ]);
+    const noMap = Object.entries(tonKho).filter(([sku, _v]) => !/^\d{10,}$/.test(sku) && !allMapped.has(sku));
+    if (noMap.length) {
+      const tbody2 = document.querySelector("#tbl-nomap tbody");
+      tbody2.innerHTML = "";
+      for (const [sku, val] of noMap) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${sku}</td><td>${val.SL_SG}</td><td>${val.SL_HN}</td>`;
+        tbody2.appendChild(tr);
+      }
+      document.getElementById("nomap-summary").textContent = `Xem danh sách (${noMap.length} SKU)`;
+      document.getElementById("card-nomap").style.display = "";
+    }
+
+    // Hiển thị kết quả
+    setStatus(`✅ Hoàn tất! Đã cập nhật ${stats.cntDon} sản phẩm đơn + ${stats.cntCombo} combo. Bỏ qua ${stats.cntSkip}.`, "success");
+    document.getElementById("results").style.display = "";
+
+  } catch (err) {
+    console.error(err);
+    setStatus("❌ Lỗi:\n" + (err.message || String(err)), "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "⚙️ Xử lý lại";
+  }
+}
+</script>
+
+</body>
+</html>

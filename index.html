@@ -71,11 +71,39 @@
     /* ─── Upload grid ─── */
     .upload-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 16px;
       margin-bottom: 24px;
     }
-    @media (max-width: 640px) { .upload-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 800px) { .upload-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 480px) { .upload-grid { grid-template-columns: 1fr; } }
+
+    /* Zone optional (File 1b) */
+    .upload-box.optional {
+      border-style: dashed;
+      border-color: #cbd5e1;
+      background: #f8fafc;
+    }
+    .upload-box.optional .upload-num { color: #94a3b8; }
+    .upload-box.optional .upload-title { color: var(--text-muted); }
+    .optional-badge {
+      display: inline-block;
+      font-size: .65rem;
+      font-weight: 700;
+      background: #e2e8f0;
+      color: #64748b;
+      border-radius: 4px;
+      padding: 2px 6px;
+      margin-bottom: 6px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    /* Khi đã upload file vào optional box — xoá style optional */
+    .upload-box.optional.done {
+      border-color: var(--success);
+      background: #f0fdf4;
+      border-style: solid;
+    }
 
     .upload-box {
       background: var(--card);
@@ -255,6 +283,17 @@
       <div class="upload-file-name" id="name-ton"></div>
     </div>
 
+    <!-- File 1b: Tồn kho 2 (tùy chọn) -->
+    <div class="upload-box optional" id="box-ton2" ondragover="onDrag(event,'box-ton2')" ondragleave="offDrag('box-ton2')" ondrop="onDrop(event,'ton2')">
+      <input type="file" id="input-ton2" accept=".xlsx" onchange="onFileChange('ton2',this)" />
+      <div class="upload-icon">📊</div>
+      <div class="optional-badge">Tùy chọn</div>
+      <div class="upload-num">File 1b</div>
+      <div class="upload-title">Tồn kho Misa 2</div>
+      <div class="upload-hint">Upload nếu Misa xuất<br>thành 2 file riêng lẻ</div>
+      <div class="upload-file-name" id="name-ton2"></div>
+    </div>
+
     <!-- File 2: Mass update -->
     <div class="upload-box" id="box-mass" ondragover="onDrag(event,'box-mass')" ondragleave="offDrag('box-mass')" ondrop="onDrop(event,'mass')">
       <input type="file" id="input-mass" accept=".xlsx" onchange="onFileChange('mass',this)" />
@@ -373,7 +412,7 @@
 // ────────────────────────────────────────────────────────────
 // State
 // ────────────────────────────────────────────────────────────
-const files = { ton: null, mass: null, map: null };
+const files = { ton: null, ton2: null, mass: null, map: null };
 
 // ────────────────────────────────────────────────────────────
 // Drag & drop / upload UI helpers
@@ -403,6 +442,7 @@ function setFile(key, file) {
   checkReady();
 }
 function checkReady() {
+  // ton2 là tùy chọn — chỉ cần ton, mass, map
   const ready = files.ton && files.mass && files.map;
   document.getElementById("btn-process").disabled = !ready;
 }
@@ -560,6 +600,52 @@ function loadTonKho(arrayBuffer, fileName = "") {
   if (colHN !== null) warehouses.push("HN");
 
   return { tonKho, warehouses, colSG, colHN };
+}
+
+// ────────────────────────────────────────────────────────────
+// Merge 2 file tồn kho thành 1 bộ dữ liệu
+// File 1 có thể là SG-only, File 2 là HN-only (hoặc ngược lại)
+// Kết quả: mỗi SKU có đủ SL_SG + SL_HN từ đúng file tương ứng
+// ────────────────────────────────────────────────────────────
+function mergeTonKho(result1, result2) {
+  const { tonKho: tk1, colSG: cSG1, colHN: cHN1 } = result1;
+  const { tonKho: tk2, colSG: cSG2, colHN: cHN2 } = result2;
+
+  // Kiểm tra xung đột: 2 file cùng kho
+  const bothSG = cSG1 !== null && cSG2 !== null;
+  const bothHN = cHN1 !== null && cHN2 !== null;
+  if (bothSG && bothHN) {
+    throw new Error(
+      "Cả 2 file tồn kho đều chứa dữ liệu của cả 2 kho HN và HCM.\n" +
+      "Chỉ cần upload 1 file khi file đó đã có đủ cả 2 kho."
+    );
+  }
+
+  // Gộp dữ liệu: lấy SL_SG từ file có kho SG, SL_HN từ file có kho HN
+  const allSKUs = new Set([...Object.keys(tk1), ...Object.keys(tk2)]);
+  const merged  = {};
+
+  for (const sku of allSKUs) {
+    const d1 = tk1[sku] || { SL_SG: 0, SL_HN: 0 };
+    const d2 = tk2[sku] || { SL_SG: 0, SL_HN: 0 };
+    merged[sku] = {
+      // File nào có cột SG thì lấy SG từ file đó (ưu tiên file 1)
+      SL_SG: cSG1 !== null ? d1.SL_SG : (cSG2 !== null ? d2.SL_SG : 0),
+      // File nào có cột HN thì lấy HN từ file đó (ưu tiên file 1)
+      SL_HN: cHN1 !== null ? d1.SL_HN : (cHN2 !== null ? d2.SL_HN : 0),
+    };
+  }
+
+  const warehouses = [];
+  if (cSG1 !== null || cSG2 !== null) warehouses.push("HCM/SG");
+  if (cHN1 !== null || cHN2 !== null) warehouses.push("HN");
+
+  return {
+    tonKho:    merged,
+    warehouses,
+    colSG:     cSG1 ?? cSG2,   // dùng để xác định tonHasSG
+    colHN:     cHN1 ?? cHN2,   // dùng để xác định tonHasHN
+  };
 }
 
 function parseIntSafe(v) {
@@ -968,9 +1054,18 @@ async function runProcess() {
       files.map.arrayBuffer(),
     ]);
 
-    // Bước 1: Tồn kho
+    // Bước 1: Tồn kho (1 hoặc 2 file)
     setStatus("⏳ Đọc file tồn kho...", "info");
-    const { tonKho, warehouses: tonWarehouses, colSG: tonColSG, colHN: tonColHN } = loadTonKho(bufTon, files.ton.name);
+    let tonResult = loadTonKho(bufTon, files.ton.name);
+
+    if (files.ton2) {
+      const bufTon2 = await files.ton2.arrayBuffer();
+      setStatus("⏳ Đọc file tồn kho thứ 2...", "info");
+      const tonResult2 = loadTonKho(bufTon2, files.ton2.name);
+      tonResult = mergeTonKho(tonResult, tonResult2);
+    }
+
+    const { tonKho, warehouses: tonWarehouses, colSG: tonColSG, colHN: tonColHN } = tonResult;
     const tonHasSG = tonColSG !== null;
     const tonHasHN = tonColHN !== null;
 

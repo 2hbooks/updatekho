@@ -465,7 +465,7 @@ function isSGLabel(val) {
   return KW_HCM.some(kw => v.includes(kw.trim()));
 }
 
-function loadTonKho(arrayBuffer) {
+function loadTonKho(arrayBuffer, fileName = "") {
   const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
@@ -483,16 +483,26 @@ function loadTonKho(arrayBuffer) {
 
   let colSG = null, colHN = null;
 
-  // Ưu tiên 1: detect từ sub-header row (dòng ngay dưới "Mã SKU")
-  // Misa thường có sub-header "SG" / "HN" dưới cột "Số lượng"
-  const subHeaderRow = data[headerRow + 1] || [];
-  for (let i = 0; i < subHeaderRow.length; i++) {
-    if (colHN === null && isHNLabel(subHeaderRow[i])) colHN = i;
-    if (colSG === null && isSGLabel(subHeaderRow[i])) colSG = i;
+  // ── Tầng 0: Tên file upload ────────────────────────────────────────────
+  // Ưu tiên cao nhất — nếu tên file chứa từ khoá kho thì nhận diện ngay
+  // Ví dụ: "TỒN VPP SG.xlsx", "ton_kho_HN_2026.xlsx", "Tồn HCM tháng 5.xlsx"
+  if (fileName) {
+    const fnLower = fileName.toLowerCase().replace(/[_\-\.]/g, " ");
+    if (isSGLabel(fnLower)) colSG = 3;
+    else if (isHNLabel(fnLower)) colHN = 3;
   }
 
-  // Ưu tiên 2: nếu sub-header không detect được, thử quét chính header row
-  // (format gộp: "SL HN", "SL SG", "Tồn HCM"...)
+  // ── Tầng 1: Sub-header row (dòng ngay dưới "Mã SKU") ──────────────────
+  // Misa thường in "Kho SG" / "HN" ở dòng sub-header dưới cột số lượng
+  if (colSG === null && colHN === null) {
+    const subHeaderRow = data[headerRow + 1] || [];
+    for (let i = 0; i < subHeaderRow.length; i++) {
+      if (colHN === null && isHNLabel(subHeaderRow[i])) colHN = i;
+      if (colSG === null && isSGLabel(subHeaderRow[i])) colSG = i;
+    }
+  }
+
+  // ── Tầng 2: Header row (gộp header: "SL HN", "Tồn SG", "Tồn HCM"...) ──
   if (colSG === null && colHN === null) {
     const hdrRow = data[headerRow] || [];
     for (let i = 0; i < hdrRow.length; i++) {
@@ -501,11 +511,34 @@ function loadTonKho(arrayBuffer) {
     }
   }
 
-  // Fallback cuối: chỉ dùng khi KHÔNG detect được GÌ cả (cả 2 đều null)
-  // KHÔNG dùng khi đã detect được 1 — tránh nhầm cột "Giá trị" thành tồn kho
+  // ── Tầng 3: Tiêu đề file (rows 0 → headerRow-1) ───────────────────────
+  // Misa in tên kho ở đầu file: "KHO TỔNG HCM", "KHO HÀ NỘI", "TP. Hồ Chí Minh"...
+  // → xác định đây là file 1-kho SG hay HN, gán vào cột mặc định (col 3)
+  if (colSG === null && colHN === null) {
+    let foundWh = null;
+    outer: for (let i = 0; i < headerRow; i++) {
+      for (const cell of (data[i] || [])) {
+        if (cell == null) continue;
+        if (isSGLabel(cell)) { foundWh = "SG"; break outer; }
+        if (isHNLabel(cell)) { foundWh = "HN"; break outer; }
+      }
+    }
+    if (foundWh === "SG") colSG = 3;
+    else if (foundWh === "HN") colHN = 3;
+  }
+
+  // ── Tầng 4: Fallback cuối ────────────────────────────────────────────
+  // Chỉ dùng khi cả 3 tầng trên đều thất bại.
+  // KHÔNG tự gán colHN=4 — col 4 có thể là "Giá trị hàng tồn kho" (tiền)
+  // Kiểm tra header col 4: nếu là cột tiền/giá trị → không gán HN
   if (colSG === null && colHN === null) {
     colSG = 3;
-    colHN = 4;
+    const hdrRow   = data[headerRow] || [];
+    const col4Name = hdrRow[4] != null ? String(hdrRow[4]).toLowerCase() : "";
+    const isMonetary = ["giá trị", "gia tri", "value", "tiền", "tien", "đơn giá", "don gia", "thành tiền", "thanh tien"]
+                        .some(kw => col4Name.includes(kw));
+    // Chỉ gán HN ở col 4 khi col 4 có header VÀ không phải cột tiền
+    if (!isMonetary && hdrRow[4] != null) colHN = 4;
   }
 
   // Dữ liệu bắt đầu từ headerRow + 2 (bỏ qua dòng sub-header)
@@ -937,7 +970,7 @@ async function runProcess() {
 
     // Bước 1: Tồn kho
     setStatus("⏳ Đọc file tồn kho...", "info");
-    const { tonKho, warehouses: tonWarehouses, colSG: tonColSG, colHN: tonColHN } = loadTonKho(bufTon);
+    const { tonKho, warehouses: tonWarehouses, colSG: tonColSG, colHN: tonColHN } = loadTonKho(bufTon, files.ton.name);
     const tonHasSG = tonColSG !== null;
     const tonHasHN = tonColHN !== null;
 
